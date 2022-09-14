@@ -17,7 +17,7 @@ import tkinter
 import sys
 import pdfkit
 import atexit
-
+import pandas as pd
 
 # Main
 if __name__ == '__main__':
@@ -46,20 +46,40 @@ if __name__ == '__main__':
     root.withdraw()
     # root.update()
     filename = filedialog.askopenfilename(title="Spreadsheet results file",
-                                          filetypes=(("xlsx", "*.xlsx"), ("all", "*.*")))
+                                          filetypes=[("Blackboard quiz export (xls/xlsx/csv)", ".xlsx .xls .csv")]
+                                          )
 
     print("Reading spreadsheet file %s" % filename)
-    try:
-        wb = load_workbook(filename=filename)
-    except IOError:
-        print("Error: Could not open the spreadsheet file, is it open in Excel?  Close it, then try again, "
-              "or check file and file permissions if not open.")
-        sys.exit(1)
-    except openpyxl.utils.exceptions.InvalidFileException:
-        print("Cannot open the file, is it a valid xlsx excel file? Check it opens in Excel, close it, then try again.")
-        sys.exit(1)
-
     fullpath = Path(filename)
+    f_type = fullpath.suffix
+
+    if f_type == ".csv":
+        try_csv = True
+    else:
+        try:
+            file = pd.ExcelFile(filename)  # Establishes the Excel file you wish to import into Pandas
+            sheet_map = pd.read_excel(file, sheet_name=None)
+            sheet = sheet_map[list(sheet_map.keys())[0]]
+            try_csv = False
+        except PermissionError:
+            print("Could not open the file, try close it if open and check permissions before trying again.\n")
+            sys.exit(1)
+        except ValueError:
+            print("Could not open excel format trying csv.\n")
+            try_csv = True
+
+    if try_csv:
+        try:
+            sheet = pd.read_csv(filename)  # Read a csv file
+        except PermissionError:
+            print("Could not open the file, try close it if open and check permissions before trying again.\n")
+            sys.exit(1)
+        except AssertionError:
+            print("Could not open the file, is it valid type?\n")
+            sys.exit(1)
+
+
+
     filepath = str(fullpath.parent)
     # remove spaces and . from filename when creating output path to avoid issues with directories with spaces or
     # multiple .
@@ -69,17 +89,15 @@ if __name__ == '__main__':
     out_dir = pathlib.PurePath(filepath, i_filename)
 
     print("directory: %s name: %s" % (filepath, i_filename))
-
-    sheet = wb.worksheets[0]
-
-    row_count = sheet.max_row
-    col_count = sheet.max_column
+    row_count = len(sheet)
+    col_count = len(sheet.columns)
 
     print("Spreadsheet has %d rows, %d cols" % (row_count, col_count))
 
-    header = sheet[1]
-    if col_count < 9 or header[0].value != "Username" or header[1].value != "Last Name" or \
-            header[2].value != "First Name" or header[3].value != "Question ID 1":
+    header = sheet.columns
+    a = header[0]
+    if not ( "Username" in header and "Last Name" in header and "First Name" in header
+        and "Question 1" in header):
         print("This spreadsheet doesn't look like a Blackboard Quiz result download.  I'm stopping here as something"
               " isn't quite right.  Please take a look at the spreadsheet file.")
         sys.exit(1)
@@ -98,35 +116,31 @@ if __name__ == '__main__':
 
     # first three columns are username, last name, first name
     # next columns are Question ID n,  Question n, Answer n, Possible points n, Auto Score n, Manual Score n
-    number_of_questions = int((col_count - 3) / 6)
-
-    print("There are %d questions to parse" % number_of_questions)
 
     questions_store = []
     answer_array = [[]]
     student_array = [[]]
     count = 1
     # iterate through sheet, starting row 2 as row 1 is the headings row
-    for row in sheet.iter_rows(2):
+    for index, row in sheet.iterrows():
         outfile_html = pathlib.PurePath(out_dir, (str(count) + ".html"))
         outfile_pdf = pathlib.PurePath(out_dir, (str(count) + ".pdf"))
         with open(outfile_html, 'w') as f:
             print("<html><body>", file=f)
-            print("Student %s" % row[0].value)
+            print("Student %s" % str(row['Full Name']))
             print("<h1>Student number %d</h1>" % count, file=f)
             # loop by row, starting from row 2 as row one is header
-            for qlp in range(number_of_questions):
+            qlp = 1
+            while "Question {}".format(qlp) in row.index.tolist():
                 # print("Question %d" % (qlp+1))
                 # here we get the question and replace \n with <br />
-                question = str(row[3 + (qlp*6) + 1].value)
+                question = str(row["Question {}".format(qlp)])
                 parsed_question = "<br />".join(question.split("\\n"))
                 # here we get the answer and replace \n with <br />
-                answer = str(row[3 + (qlp*6) + 2].value)
+                answer = str(row["Answer {}".format(qlp)])
                 parsed_answer = "<br />".join(answer.split("\\n"))
                 if parsed_question not in questions_store:
                     questions_store.append(parsed_question)
-                    # get length at this point, because array starts at pos 0, but we label from one, so first
-                    # one will be 1
                     q_num = len(questions_store)
                     print("Found new question %d" % q_num)
                     question_html = pathlib.PurePath(out_dir, ("Question_" + str(q_num) + ".html"))
@@ -149,8 +163,10 @@ if __name__ == '__main__':
                     # build up answer array, use q_num - 1 as q-num starts at 1, whereas array indexes start at zero
                     answer_array[q_num-1].append(parsed_answer)
                     student_array[q_num-1].append(count)
-                print("<h2>Answer %d for question %d</h2><br /> %s" % (qlp+1, q_num, parsed_answer), file=f)
+                print("<h2>Answer %d for question %d</h2><br /> %s" % (qlp, q_num, parsed_answer), file=f)
+                qlp += 1
             print("</body></html>", file=f)
+
 
         if pdf:
             pdfkit.from_file(str(outfile_html), str(outfile_pdf), configuration=config)
