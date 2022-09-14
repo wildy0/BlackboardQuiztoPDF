@@ -10,5 +10,5 @@ pip install -r requirements.txt before running.
 
 You will also need wkhtmltopdf installed on your system in the path, or standard windows location.  Available from https://wkhtmltopdf.org/
 
-
+Don't forget that you need to export the files as a CSV format from Blackboard, select comma and not tabs for format.
 
