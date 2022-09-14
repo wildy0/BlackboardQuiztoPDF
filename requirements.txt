@@ -1,2 +1,3 @@
 openpyxl==3.0.3
+pandas==1.2.4
 pdfkit==1.0.0
